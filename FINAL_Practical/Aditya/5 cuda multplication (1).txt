@@ -1,0 +1,85 @@
+!nvidia-smi
+
+!/usr/local/cuda/bin/nvcc --version
+
+!pip install nvcc4jupyter
+%load_ext nvcc4jupyter
+
+%%writefile vector_multiplication.cu 
+
+#include <iostream>
+#include <cuda.h>
+using namespace std;
+
+__global__ void multiply(int *a, int *b, int *c, int n) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < n && col < n) {
+        int sum = 0;
+        for (int k = 0; k < n; k++)
+            sum += a[row*n + k] * b[k*n + col];
+
+        c[row*n + col] = sum;
+    }
+}
+
+int main() {
+    int n;
+    cin >> n;
+
+    int size = n * n * sizeof(int);
+
+    // Host memory (C++ style)
+    int *a = new int[n*n];
+    int *b = new int[n*n];
+    int *c = new int[n*n];
+
+    int *d_a, *d_b, *d_c;
+
+    // Input
+    for (int i = 0; i < n*n; i++) cin >> a[i];
+    for (int i = 0; i < n*n; i++) cin >> b[i];
+
+    // Allocate GPU memory
+    cudaMalloc((void**)&d_a, size);
+    cudaMalloc((void**)&d_b, size);
+    cudaMalloc((void**)&d_c, size);
+
+    // Copy data to GPU
+    cudaMemcpy(d_a, a, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b, b, size, cudaMemcpyHostToDevice);
+
+    // Define block and grid
+    dim3 block(16, 16);
+    dim3 grid((n + 15) / 16, (n + 15) / 16);
+
+    // Launch kernel
+    multiply<<<grid, block>>>(d_a, d_b, d_c, n);
+    cudaDeviceSynchronize();
+
+    // Copy result back
+    cudaMemcpy(c, d_c, size, cudaMemcpyDeviceToHost);
+
+    // Output matrix
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++)
+            cout << c[i*n + j] << " ";
+        cout << endl;
+    }
+
+    // Free memory
+    delete[] a;
+    delete[] b;
+    delete[] c;
+
+    cudaFree(d_a);
+    cudaFree(d_b);
+    cudaFree(d_c);
+
+    return 0;
+}
+
+!nvcc -arch=sm_75 vector_multiplication.cu -o vector_multiplication
+
+!echo "2 1 2 3 4 5 6 7 8" | ./vector_multiplication
